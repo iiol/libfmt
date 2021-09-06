@@ -1,0 +1,17 @@
+{
+    "protocol":"iso8583",
+    "version":"v1",
+    "fields":[
+        {"idx":1,  "descx":"Second bitmap"},
+        {"idx":2,  "descx":"Primary account number", "format":"n..19"},
+        {"idx":3,  "descx":"Processing code", "format":"n6"},
+        {"idx":4,  "descx":"Amount Transaction", "format":"n12"},
+        {"idx":5,  "descx":"Amount, settlement", "format":"n12"},
+        {"idx":6,  "descx":"Amount, cardholder billing", "format":"n12"},
+        {"idx":7,  "descx":"Transmission date & time", "format":"n10"},
+        {"idx":8,  "descx":"Amount, cardholder billing fee", "format":"n8"},
+        {"idx":9,  "descx":"Conversion rate, settlement", "format":"n8"},
+        {"idx":10, "descx":"Conversion rate, cardholder billing", "format":"n8"},
+        {"idx":48, "descx":"Additional data (private)", "format":"local"}
+    ]
+}
