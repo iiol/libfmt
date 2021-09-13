@@ -3,17 +3,20 @@
 #include <alloca.h>
 #include <string.h>
 #include <stdbool.h>
+#include <libgen.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #include <json_tokener.h>
 #include <json_object.h>
 
-#define JFILE "iso8583.json"
-#define TEMPLC "funcs.c"
+#include "funcs.h"
 
 /*
- * if msgerr isn't equal to NULL then remember a message, otherwise print the message
+ * @brief           check_errormsg - remember and print error messages
+ * @param[in]       msgerr -- if is not NULL then put remember the msg print the msg
  */
-void
+static void
 check_errormsg(const char *msgerr)
 {
     static const char *s = NULL;
@@ -26,7 +29,7 @@ check_errormsg(const char *msgerr)
     }
 }
 
-bool
+static bool
 check_flds(struct json_object *flds)
 {
     size_t len, i;
@@ -55,7 +58,7 @@ check_flds(struct json_object *flds)
     return true;
 }
 
-bool
+static bool
 check_proto(struct json_object *proto)
 {
     if (!json_object_is_type(proto, json_type_object)
@@ -69,44 +72,102 @@ check_proto(struct json_object *proto)
     return true;
 }
 
-int
-gen_includes(struct json_object *proto)
+static int
+gen_header(struct json_object *proto, const char *header)
 {
-    (void)proto;
+    const char *sproto;
+    const char *svers;
+    FILE *fp;
 
-    printf("#include <stdio.h>\n");
-    printf("#include <stdlib.h>\n");
-    printf("#include <string.h>\n");
+    sproto = json_object_get_string(json_object_object_get(proto, "protocol"));
+    svers = json_object_get_string(json_object_object_get(proto, "version"));
+
+    fp = fopen(header, "w+");
+    if (!fp) {
+        perror("fopen()");
+        return 1;
+    }
+
+    fprintf(fp, "#include <stdlib.h>\n"
+                "#include <stdbool.h>\n"
+                "#include <stdint.h>\n");
+
+    fprintf(fp, "struct proto_%s {\n"
+                "    const char *protocol;\n"
+                "    const char *version;\n"
+                "    struct fields_%s {\n"
+                "        bool isdefined;\n"
+                "        const char *descx\n;"
+                "        // format flags\n"
+                "        bool issizefxd;\n"
+                "        size_t size;\n"
+                "        bool local;\n"
+                "        bool alpha;\n"
+                "        bool digit;\n"
+                "        bool bytes;\n"
+                "    } flds[128];\n"
+                "};\n", sproto, sproto);
+
+    fprintf(fp, "struct message {\n"
+                "    void *userdata;\n"
+                "    // TODO add field tree\n"
+                "};\n"
+                "size_t get_length_%s(int i, const uint8_t *buf, size_t size);\n"
+                "size_t check_%s(int i, const uint8_t *buf, size_t size);\n"
+                "bool libfmt_check_%s(struct message *msg, const uint8_t *buf, size_t size);\n", sproto, sproto, sproto);
 
     return 0;
 }
 
-int
-gen_protocol(struct json_object *proto)
+static int
+gen_cfile(struct json_object *proto, const char *cfile, const char *hfile)
 {
+    int fd;
     size_t i, flds_count;
-    const char *sproto;
-    const char *svers;
     struct json_object *flds;
+    const char *sproto, *svers;
+    char cmd[1024];
+    char tmpfile[] = "/tmp/file.XXXXXX";
+    FILE *fp;
+    char *header;
+
+    header = alloca(strlen(hfile) + 1);
+    strcpy(header, hfile);
+    header = basename(header);
 
     sproto = json_object_get_string(json_object_object_get(proto, "protocol"));
     svers = json_object_get_string(json_object_object_get(proto, "version"));
     flds = json_object_object_get(proto, "fields");
     flds_count = json_object_array_length(flds);
 
-    printf("struct proto_%s {\n"
-           "    const char *protocol;\n"
-           "    const char *version;\n"
-           "    struct fields_%s {\n"
-           "        int idx;\n"
-           "        const char *descx\n;"
-           "        const char *fmt;\n"
-           "        size_t size;\n"
-           "    } flds[%d];\n"
-           "} proto_%s = {\n"
-           "    .protocol = \"%s\",\n"
-           "    .version = \"%s\",\n"
-           "    .flds = {\n", sproto, sproto, (int)flds_count, sproto, sproto, svers);
+    fd = mkstemp(tmpfile);
+    if (fd == -1) {
+        perror("mkstemp()");
+        return 1;
+    }
+
+    fp = fdopen(fd, "w+");
+    if (!fp) {
+        perror("fopen()");
+        close(fd);
+        return 1;
+    }
+
+    fprintf(fp, "#ifndef _%s_H\n"
+                "#define _%s_H\n", sproto, sproto);
+
+    fprintf(fp, "#include <stdio.h>\n"
+                "#include <stdlib.h>\n"
+                "#include <string.h>\n"
+                "#include <ctype.h>\n"
+                "#include <stdint.h>\n"
+                "#include <stdbool.h>\n"
+                "#include \"%s\"\n", header);
+
+    fprintf(fp, "struct proto_%s proto_%s = {\n"
+                "    .protocol = \"%s\",\n"
+                "    .version = \"%s\",\n"
+                "    .flds = {\n", sproto, sproto, sproto, svers);
 
 
     for (i = 0; i < flds_count; ++i) {
@@ -116,47 +177,32 @@ gen_protocol(struct json_object *proto)
         const char *fmt;
 
         fld = json_object_array_get_idx(flds, i);
-        idx = json_object_get_int(json_object_object_get(fld, "idx"));
+        idx = json_object_get_int(json_object_object_get(fld, "idx")); // TODO
         descx = json_object_get_string(json_object_object_get(fld, "descx"));
         fmt = json_object_get_string(json_object_object_get(fld, "format"));
-        printf("        [%d] = {\n"
-               "            .descx = \"%s\",\n"
-               "            .fmt = \"%s\",\n"
-               "            .size = %d,\n"
-               "        },\n", idx, descx, fmt, 0);
+        fprintf(fp, "        [%d] = {\n"
+                    "            .isdefined = true,\n"
+                    "            .descx = \"%s\",\n"
+                    "            .issizefxd = true,\n" // TODO
+                    "            .size = %d,\n"
+                    "            .local = false,\n" // TODO
+                    "            .alpha = false,\n" // TODO
+                    "            .digit = false,\n" // TODO
+                    "            .bytes = true,\n" // TODO
+                    "        },\n", idx, descx, 0);
     }
 
-    printf("    }\n};\n");
+    fprintf(fp, "    }\n};\n");
+    fprintf(fp, "%s", c_template);
+    fprintf(fp, "#endif\n");
 
-    return 0;
-}
+    fclose(fp);
 
-int
-gen_message(struct json_object *proto)
-{
-    const char *sproto;
+    snprintf(cmd, sizeof (cmd), "/bin/cat %s | /bin/sed 's/#protocol#/%s/g' >%s", // TODO
+             tmpfile, sproto, cfile);
 
-    sproto = json_object_get_string(json_object_object_get(proto, "protocol"));
-
-    // put into h file
-    printf("struct message {\n"
-           "    void *userdata;\n"
-           "    // TODO add field tree\n"
-           "};\n");
-
-    return 0;
-}
-
-int
-gen_functions(struct json_object *proto)
-{
-    const char *sproto;
-    char cmd[1024];
-
-    sproto = json_object_get_string(json_object_object_get(proto, "protocol"));
-
-    snprintf(cmd, sizeof (cmd), "/bin/cat %s | /bin/sed 's/#protocol#/%s/g' >%s.%s", TEMPLC, sproto, sproto, TEMPLC);
     system(cmd); // TODO: rewrite
+    unlink(tmpfile);
 
     // regex for *format*
     // /(a|n|x+n|s|an|as|ns|ans|b|x+n)\.\.?\.?NN?N?/
@@ -165,28 +211,99 @@ gen_functions(struct json_object *proto)
     return 0;
 }
 
-int
-libgen(struct json_object *proto)
+static int
+libgen(struct json_object *proto, const char *cfile, const char *hfile)
 {
-    gen_includes(proto);
-    gen_protocol(proto);
-    gen_message(proto);
-    gen_functions(proto);
+    gen_header(proto, hfile);
+    gen_cfile(proto, cfile, hfile);
 
     return 0;
 }
 
+static void
+usage(FILE *stream, const char *file)
+{
+    fprintf(stream, "Usage: %s <-j file.json>\n", file);
+}
+
+/*
+ * @brief           filenam - get filename of a file without an extention
+ * @param[in,out]   file - path to the file
+ * @details         some examples:
+ *                  '/path/to/file.c' -> 'file'
+ *                  './file.tar.gz'  -> 'file.tar'
+ * @todo            Fix for files that start with a dot
+ */
+static char*
+filename(char *file)
+{
+    char *p = NULL;
+    char *ret = file;
+
+    if (!file)
+        return NULL;
+
+    for (; *file; ++file) {
+        if (*file == '/')
+            ret = file + 1;
+        else if (*file == '.')
+            p = file;
+    }
+
+    if (p)
+        *p = '\0';
+
+    return ret;
+}
+
 int
-main(void)
+main(int argc, char **argv)
 {
     FILE *jsonf;
     int rc = 0;
     char *json_str;
     size_t size = 0L;
     struct json_object *proto;
+    char c;
+    const char *json_file = NULL;
+    char *cfile = NULL, *hfile= NULL, *path, *file;
+    int len;
+
+
+    while ((c = getopt(argc, argv, "c:j:h:")) != -1) {
+        switch (c) {
+        case 'j':
+            json_file = optarg;
+            break;
+
+        default:
+            usage(stderr, *argv);
+            return 1;
+        }
+    }
+
+    if (!json_file) {
+        usage(stderr, *argv);
+        return 1;
+    }
+
+    len = strlen(json_file) + 1;
+    cfile = alloca(len);
+    hfile = alloca(len);
+    path = alloca(len);
+    file = alloca(len);
+
+    strcpy(path, json_file);
+    strcpy(file, json_file);
+
+    path = dirname(path);
+    file = filename(file);
+
+    sprintf(cfile, "%s/%s.c", path, file);
+    sprintf(hfile, "%s/%s.h", path, file);
 
     // Open a json file
-    jsonf = fopen(JFILE, "r");
+    jsonf = fopen(json_file, "r");
     if (!jsonf) {
         perror("fopen()");
         rc = 1;
@@ -200,14 +317,14 @@ main(void)
     fseek(jsonf, 0L, SEEK_SET); // TODO: check retval
     fread(json_str, 1, size, jsonf);
     if (ferror(jsonf)) {
-        fprintf(stderr, "Can't read file %s\n", JFILE);
+        fprintf(stderr, "Can't read file %s\n", json_file);
         rc = 1;
         goto close_file;
     }
 
     proto = json_tokener_parse(json_str);
     if (!proto) {
-        fprintf(stderr, "Can't parse file %s\n", JFILE);
+        fprintf(stderr, "Can't parse file %s\n", json_file);
         rc = 1;
         goto close_file;
     }
@@ -217,7 +334,7 @@ main(void)
         goto free_json;
     }
 
-    libgen(proto);
+    libgen(proto, cfile, hfile);
 
 free_json:
     (void)proto; // TODO: free json

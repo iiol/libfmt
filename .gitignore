@@ -1,2 +1,10 @@
 a.out
-iso8583.funcs.c
+*.o
+
+*.swp
+*.swo
+
+funcs.h
+
+example/iso8583.c
+example/iso8583.h

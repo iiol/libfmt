@@ -1,8 +1,8 @@
-#define getint(n, buf, sz, pos) do {n = natoi((char*)buf + pos, sz); pos += sz} while (0)
-#define getbitmap(bm, buf, pos) do {memcpy(bm, buf, 8); pos += 8} while (0)
+#define getint(n, buf, sz, pos) do {n = natoi((char*)buf + pos, sz); pos += sz;} while (0)
+#define getbitmap(bm, buf, pos) do {memcpy(bm, (char*)buf + pos, 8); pos += 8;} while (0)
 #define cpybitmap(dst, src) memcpy(dst, src, 16)
 
-#define skipn(sz, pos) do {pos += sz} while (0)
+#define skipn(sz, pos) do {pos += sz;} while (0)
 
 #define isbitset(bm, bit) (bm[(bit - 1)/8] & (1 << (7 - ((bit - 1) & 7))))
 
@@ -10,7 +10,7 @@
 
 #define MAX_BIT 128
 
-typedef char[16] bitmap;
+typedef uint8_t bitmap[16];
 
 static inline int natoi(const char *str, size_t sz) {
     char s[sz + 1];
@@ -18,13 +18,13 @@ static inline int natoi(const char *str, size_t sz) {
     return atoi(s);
 }
 
-static bool check_length_#protocol#(struct message *msg, uint8_t *buf, size_t size)
+static bool check_length_#protocol#(struct message *msg, const uint8_t *buf, size_t size)
 {
     int i;
     size_t msgpos = 0;
     bitmap bm;
 
-    if (msgpos + 4 + 8 > size)
+    if (4 + 8 > size)
         goto err;
 
     skipn(4, msgpos); // Skip MTI
@@ -34,7 +34,7 @@ static bool check_length_#protocol#(struct message *msg, uint8_t *buf, size_t si
         if (msgpos + 8 > size)
             goto err;
 
-        getbitmap(bm + 8, buf);
+        getbitmap(bm + 8, buf, msgpos);
     }
 
     for (i = 2; i < MAX_BIT; ++i) {
@@ -56,7 +56,7 @@ static bool check_length_#protocol#(struct message *msg, uint8_t *buf, size_t si
                 goto err;
 
             getint(n, buf, size, msgpos);
-            len += n;
+            len = n;
         }
 
         if (msgpos + len > size)
@@ -72,14 +72,14 @@ err:
     return false;
 }
 
-bool libfmmt_check_#protocol#(struct message *msg, uint8_t *buf, size_t size)
+bool libfmt_check_#protocol#(struct message *msg, const uint8_t *buf, size_t size)
 {
     int i;
-    size_t msgpos, len;
+    size_t msgpos = 0, len;
     int mti;
-    bitmap bm;
+    bitmap bm = {0};
 
-    if (check_length_#protocol#(msg, buf, size)) {
+    if (!check_length_#protocol#(msg, buf, size)) {
         fprintf(stderr, "Length of buffer is incorrect\n");
         return false;
     }
@@ -87,19 +87,36 @@ bool libfmmt_check_#protocol#(struct message *msg, uint8_t *buf, size_t size)
     getint(mti, buf, 4, msgpos);
     getbitmap(bm, buf, msgpos);
 
-    if (isbitset(bm, 1))
-        getbitmap(bm + 8, buf);
+    if (isbitset(bm, 1)) {
+        printf("first bit is set\n");
+        getbitmap((uint8_t*)bm + 8, buf, msgpos);
+    }
+
+    printf("mti: %d\n", mti);
+    printf("msgpos: %d\n", (int)msgpos);
+    printf("bitmap: ");
+    for (i = 0; i < 16; ++i) {
+        printf("%02X", bm[i]);
+    }
+    printf("\nbuf: ");
+    for (i = 0; i < 16; ++i) {
+        printf("%02X", buf[i+4]);
+    }
+    printf("\n");
 
     for (i = 2; i < MAX_BIT; ++i) {
-        uint8_t *fld;
+        int j;
 
         if (!isbitset(bm, i))
             continue;
-        else if (!proto_#protocol#.flds[i].defined) {
+        else if (!proto_#protocol#.flds[i].isdefined) {
             fprintf(stderr, "Can't find fld #%d in provided description.\n", i);
-            break;
+            return false;
         }
-        else if (proto_#protocol#.flds[i].local) {
+
+        printf("#%d is set in bitmap\n", i);
+
+        if (proto_#protocol#.flds[i].local) {
             msgpos += check_#protocol#(i, buf + msgpos, size - msgpos);
             continue;
         }
