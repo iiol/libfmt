@@ -1,6 +1,7 @@
-COMMON_WARN=-Wall -Werror -pedantic -Wno-logical-op-parentheses
-DOC_WARN= -Wdocumentation -fparse-all-comments -Wno-documentation-deprecated-sync -Wdocumentation-unknown-command
-CFLAGS=${COMMON_WARN} ${DOC_WARN} -std=gnu99 `pkg-config --cflags json-c`
+COMMON_WARN=-Wall -Weverything -Werror -pedantic -fparse-all-comments \
+            -Wno-logical-op-parentheses -Wno-alloca -Wno-padded \
+            -Wno-documentation-deprecated-sync
+CFLAGS=${COMMON_WARN} -std=gnu99 `pkg-config --cflags json-c`
 LIBS=`pkg-config --libs json-c`
 
 all:

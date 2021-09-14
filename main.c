@@ -150,7 +150,7 @@ parse_fmt(struct format_flags *flgs, const char *fmt)
         return true;
     }
 
-    len = strlen(fmt);
+    len = (int)strlen(fmt);
 
     memset(flgs, 0, sizeof (*flgs));
     flgs->issizefxd = true;
@@ -223,7 +223,7 @@ gen_cfile(struct json_object *proto, const char *cfile, const char *hfile)
     sproto = json_object_get_string(json_object_object_get(proto, "protocol"));
     svers = json_object_get_string(json_object_object_get(proto, "version"));
     flds = json_object_object_get(proto, "fields");
-    flds_count = json_object_array_length(flds);
+    flds_count = (int)json_object_array_length(flds);
 
     fd = mkstemp(tmpfile);
     if (fd == -1) {
@@ -262,8 +262,8 @@ gen_cfile(struct json_object *proto, const char *cfile, const char *hfile)
         const char *fmt;
         struct format_flags flgs = {0};
 
-        fld = json_object_array_get_idx(flds, i);
-        idx = json_object_get_int(json_object_object_get(fld, "idx"));
+        fld = json_object_array_get_idx(flds, (size_t)i);
+        idx = (int)json_object_get_int(json_object_object_get(fld, "idx"));
         descx = json_object_get_string(json_object_object_get(fld, "descx"));
         fmt = json_object_get_string(json_object_object_get(fld, "format"));
 
@@ -352,7 +352,7 @@ main(int argc, char **argv)
     FILE *jsonf;
     int rc = 0;
     char *json_str;
-    size_t size = 0L;
+    long size = 0L;
     struct json_object *proto;
     char c;
     const char *json_file = NULL;
@@ -360,7 +360,7 @@ main(int argc, char **argv)
     int len;
 
 
-    while ((c = getopt(argc, argv, "c:j:h:")) != -1) {
+    while ((c = (char)getopt(argc, argv, "c:j:h:")) != -1) {
         switch (c) {
         case 'j':
             json_file = optarg;
@@ -377,7 +377,7 @@ main(int argc, char **argv)
         return 1;
     }
 
-    len = strlen(json_file) + 1;
+    len = (int)strlen(json_file) + 1;
     cfile = alloca(len);
     hfile = alloca(len);
     path = alloca(len);
@@ -405,7 +405,7 @@ main(int argc, char **argv)
     size = ftell(jsonf); // TODO: check retval
     json_str = alloca(size); // TODO: check retval
     fseek(jsonf, 0L, SEEK_SET); // TODO: check retval
-    fread(json_str, 1, size, jsonf);
+    fread(json_str, 1, (unsigned long)size, jsonf);
     if (ferror(jsonf)) {
         fprintf(stderr, "Can't read file %s\n", json_file);
         rc = 1;
