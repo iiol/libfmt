@@ -1,2 +1,4 @@
-The repository contains a messy dirty pieces of a iso8583-like
-library generator.
+TODO list:
+1) Write libfmt_fill_#protocol#
+2) Write libfmt_parse_#protocol#
+3) Improve debugging messages
