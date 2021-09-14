@@ -6,6 +6,7 @@
 #include <libgen.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <ctype.h>
 
 #include <json_tokener.h>
 #include <json_object.h>
@@ -101,6 +102,7 @@ gen_header(struct json_object *proto, const char *header)
                 "        // format flags\n"
                 "        bool issizefxd;\n"
                 "        size_t size;\n"
+                "        size_t max_size;\n"
                 "        bool local;\n"
                 "        bool alpha;\n"
                 "        bool digit;\n"
@@ -114,16 +116,99 @@ gen_header(struct json_object *proto, const char *header)
                 "};\n"
                 "size_t get_length_%s(int i, const uint8_t *buf, size_t size);\n"
                 "size_t check_%s(int i, const uint8_t *buf, size_t size);\n"
-                "bool libfmt_check_%s(struct message *msg, const uint8_t *buf, size_t size);\n", sproto, sproto, sproto);
+                "bool libfmt_check_%s(struct message *msg, const uint8_t *buf, size_t size);\n",
+            sproto, sproto, sproto);
 
     return 0;
+}
+
+struct format_flags {
+    bool issizefxd;
+    int size;
+    int max_size;
+    bool islocal;
+    bool isalpha;
+    bool isdigit;
+    bool isbytes;
+};
+
+// regex for *format*
+// /(a|n|s|an|as|ns|ans|b|x+n)\.\.?\.?NN?N?/
+
+static bool
+parse_fmt(struct format_flags *flgs, const char *fmt)
+{
+    int i, len;
+
+    if (!fmt) {
+        fprintf(stderr, "fmt is NULL\n");
+        return false;
+    }
+
+    if (!strcmp(fmt, "local")) {
+        flgs->islocal = true;
+        return true;
+    }
+
+    len = strlen(fmt);
+
+    memset(flgs, 0, sizeof (*flgs));
+    flgs->issizefxd = true;
+
+    for (i = 0; i < len; ++i) {
+        if (fmt[i] == 'a')
+            flgs->isalpha = true;
+        else if (fmt[i] == 'n')
+            flgs->isdigit = true;
+        else if (fmt[i] == 's')
+            ; // flgs->isspec = true; // TODO uncomment
+        else if (fmt[i] == 'b')
+            flgs->isbytes = true;
+        else {
+            if (fmt[i] == '.')
+                flgs->issizefxd = false;
+            else if (!isdigit(fmt[i])) {
+                fprintf(stderr, "Unknown fmt symbol: '%c'\n", fmt[i]);
+                return false;
+            }
+
+            break;
+        }
+    }
+
+    // if we loop here than flgs->issizefxd == false
+    for (; i < len; ++i) {
+        if (fmt[i] != '.')
+            break;
+
+        flgs->size += 1;
+    }
+
+    if (i < len && !isdigit(fmt[i])) {
+        int size = atoi(fmt + i);
+
+        if (size < 1) {
+            fprintf(stderr, "Size of field cant be less than 1\n");
+            return false;
+        }
+        else if (flgs->issizefxd)
+            flgs->size = size;
+        else
+            flgs->max_size = size;
+    }
+
+    // normalizing
+    if (flgs->isbytes)
+        flgs->isalpha = flgs->isdigit = false;
+
+    return true;
 }
 
 static int
 gen_cfile(struct json_object *proto, const char *cfile, const char *hfile)
 {
     int fd;
-    size_t i, flds_count;
+    int i, flds_count;
     struct json_object *flds;
     const char *sproto, *svers;
     char cmd[1024];
@@ -175,21 +260,30 @@ gen_cfile(struct json_object *proto, const char *cfile, const char *hfile)
         int idx;
         const char *descx;
         const char *fmt;
+        struct format_flags flgs = {0};
 
         fld = json_object_array_get_idx(flds, i);
-        idx = json_object_get_int(json_object_object_get(fld, "idx")); // TODO
+        idx = json_object_get_int(json_object_object_get(fld, "idx"));
         descx = json_object_get_string(json_object_object_get(fld, "descx"));
         fmt = json_object_get_string(json_object_object_get(fld, "format"));
+
+        if (!parse_fmt(&flgs, fmt))
+            fprintf(stderr, "Can't parse format string of #%d fld, fmt is '%s'", idx, fmt);
+
         fprintf(fp, "        [%d] = {\n"
                     "            .isdefined = true,\n"
                     "            .descx = \"%s\",\n"
-                    "            .issizefxd = true,\n" // TODO
+                    "            .issizefxd = %d,\n"
                     "            .size = %d,\n"
-                    "            .local = false,\n" // TODO
-                    "            .alpha = false,\n" // TODO
-                    "            .digit = false,\n" // TODO
-                    "            .bytes = true,\n" // TODO
-                    "        },\n", idx, descx, 0);
+                    "            .max_size = %d,\n"
+                    "            .local = %d,\n"
+                    "            .alpha = %d,\n"
+                    "            .digit = %d,\n"
+                    "            .bytes = %d,\n"
+                    "        },\n", idx, descx, flgs.issizefxd, flgs.size,
+                                    flgs.max_size, flgs.islocal,
+                                    flgs.isalpha, flgs.isdigit,
+                                    flgs.isbytes);
     }
 
     fprintf(fp, "    }\n};\n");
@@ -198,15 +292,11 @@ gen_cfile(struct json_object *proto, const char *cfile, const char *hfile)
 
     fclose(fp);
 
-    snprintf(cmd, sizeof (cmd), "/bin/cat %s | /bin/sed 's/#protocol#/%s/g' >%s", // TODO
+    snprintf(cmd, sizeof (cmd), "/bin/cat %s | /bin/sed 's/#protocol#/%s/g' >%s", // TODO: rewrite
              tmpfile, sproto, cfile);
 
     system(cmd); // TODO: rewrite
     unlink(tmpfile);
-
-    // regex for *format*
-    // /(a|n|x+n|s|an|as|ns|ans|b|x+n)\.\.?\.?NN?N?/
-    // TODO: build .c file from template (funcs.c)
 
     return 0;
 }
