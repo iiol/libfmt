@@ -4,7 +4,7 @@ CFLAGS=${COMMON_WARN} ${DOC_WARN} -std=gnu99 `pkg-config --cflags json-c`
 LIBS=`pkg-config --libs json-c`
 
 all:
-	(echo char c_template[] = '"\n\'; cat funcs.c.template | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | awk '{print $$0 "\\n\\"}'; echo '";') >funcs.h
+	./gentemps.sh
 	clang ${CFLAGS} ${LIBS} main.c
 	./a.out -j ./example/iso8583.json
 
