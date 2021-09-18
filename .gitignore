@@ -4,7 +4,5 @@ a.out
 *.swp
 *.swo
 
-funcs.h
-
 example/iso8583.c
 example/iso8583.h

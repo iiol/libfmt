@@ -11,7 +11,8 @@
 #include <json_tokener.h>
 #include <json_object.h>
 
-#include "funcs.h"
+extern char __template_data_start[]; static const char *c_template;
+extern char __template_data_size[];  static size_t c_template_size;
 
 /*
  * @brief           check_errormsg - remember and print error messages
@@ -287,7 +288,7 @@ gen_cfile(struct json_object *proto, const char *cfile, const char *hfile)
     }
 
     fprintf(fp, "    }\n};\n");
-    fprintf(fp, "%s", c_template);
+    fprintf(fp, "%.*s", (int)c_template_size, c_template);
     fprintf(fp, "#endif\n");
 
     fclose(fp);
@@ -359,6 +360,8 @@ main(int argc, char **argv)
     char *cfile = NULL, *hfile= NULL, *path, *file;
     int len;
 
+    c_template = __template_data_start;
+    c_template_size = (size_t)__template_data_size;
 
     while ((c = (char)getopt(argc, argv, "c:j:h:")) != -1) {
         switch (c) {
