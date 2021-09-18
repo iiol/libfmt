@@ -113,12 +113,21 @@ gen_header(struct json_object *proto, const char *header)
 
     fprintf(fp, "struct message {\n"
                 "    void *userdata;\n"
+                "    struct field {\n"
+                "        size_t size;"
+                "        uint8_t *data;"
+                "    } flds[128];"
                 "    // TODO add field tree\n"
                 "};\n"
                 "size_t get_length_%s(int i, const uint8_t *buf, size_t size);\n"
                 "size_t check_%s(int i, const uint8_t *buf, size_t size);\n"
-                "bool libfmt_check_%s(struct message *msg, const uint8_t *buf, size_t size);\n",
-            sproto, sproto, sproto);
+                "size_t parse_%s(void *udata, int i, const uint8_t *buf, size_t size);\n"
+                "\n"
+                "bool libfmt_check_%s(const struct message *msg, const uint8_t *buf, size_t size);\n"
+                "struct message *libfmt_init_message_%s(void);\n"
+                "bool libfmt_parse_%s(struct message *msg, const uint8_t *buf, size_t size);\n"
+                "size_t libfmt_getfld_%s(void **data, struct message *msg, int i);\n",
+            sproto, sproto, sproto, sproto, sproto, sproto, sproto);
 
     return 0;
 }
@@ -194,8 +203,8 @@ parse_fmt(struct format_flags *flgs, const char *fmt)
         }
         else if (flgs->issizefxd)
             flgs->size = size;
-        else
-            flgs->max_size = size;
+
+        flgs->max_size = size;
     }
 
     // normalizing

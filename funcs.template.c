@@ -1,6 +1,7 @@
 #define getint(n, buf, sz, pos) do {n = natoi((char*)buf + pos, sz); pos += sz;} while (0)
 #define getbitmap(bm, buf, pos) do {memcpy(bm, (char*)buf + pos, 8); pos += 8;} while (0)
 #define cpybitmap(dst, src) memcpy(dst, src, 16)
+#define getraw(dest, src, len, pos) do {memcpy(dest, (char*)src + pos, len); pos += len;} while (0)
 
 #define printbitmap(bm) do {    \
     printf("bitmap: ");         \
@@ -26,7 +27,8 @@ static inline int natoi(const char *str, unsigned int len) {
     return atoi(s);
 }
 
-static bool check_length_#protocol#(struct message *msg, const uint8_t *buf, size_t size)
+static bool
+check_length_#protocol#(const struct message *msg, const uint8_t *buf, size_t size)
 {
     int i;
     size_t msgpos = 0;
@@ -54,7 +56,7 @@ static bool check_length_#protocol#(struct message *msg, const uint8_t *buf, siz
         if (proto_#protocol#.flds[i].local)
             len = get_length_#protocol#(i, buf, size);
         else if (proto_#protocol#.flds[i].issizefxd)
-            len = proto_#protocol#.flds[i].size;
+            len = proto_#protocol#.flds[i].size; // TODO: check max size
         else {
             size_t n;
 
@@ -85,7 +87,8 @@ err:
     return false;
 }
 
-bool libfmt_check_#protocol#(struct message *msg, const uint8_t *buf, size_t size)
+bool
+libfmt_check_#protocol#(const struct message *msg, const uint8_t *buf, size_t size)
 {
     int i;
     size_t msgpos = 0, len;
@@ -119,7 +122,7 @@ bool libfmt_check_#protocol#(struct message *msg, const uint8_t *buf, size_t siz
         printf("Checking #%d field\n", i);
 
         if (proto_#protocol#.flds[i].local) {
-            msgpos += check_#protocol#(i, buf + msgpos, size - msgpos);
+            msgpos += check_#protocol#(i, buf + msgpos, size - msgpos); // TODO: put msg
             continue;
         }
         else if (proto_#protocol#.flds[i].issizefxd)
@@ -140,4 +143,73 @@ bool libfmt_check_#protocol#(struct message *msg, const uint8_t *buf, size_t siz
     }
 
     return true;
+}
+
+struct message*
+libfmt_init_message_#protocol#(void)
+{
+    struct message *msg;
+    int i;
+
+    msg = malloc(sizeof (*msg));
+    memset(msg, 0, sizeof (*msg));
+
+    for (i = 0; i < 128; ++i) {
+        if (!proto_#protocol#.flds[i].isdefined
+         || proto_#protocol#.flds[i].local)
+            continue;
+
+        msg->flds[i].data = malloc(proto_#protocol#.flds[i].max_size);
+    }
+
+    return msg;
+}
+
+bool
+libfmt_parse_#protocol#(struct message *msg, const uint8_t *buf, size_t size)
+{
+    int i;
+    size_t msgpos = 0, len;
+    int mti;
+    bitmap bm = {0};
+
+    if (!libfmt_check_#protocol#(msg, buf, size)) {
+        fprintf(stderr, "Can't parse a message\n");
+        return false;
+    }
+
+    getint(mti, buf, 4, msgpos);
+    getbitmap(bm, buf, msgpos);
+
+    if (isbitset(bm, 1))
+        getbitmap((uint8_t*)bm + 8, buf, msgpos);
+
+    for (i = 2; i < MAX_BIT; ++i) {
+        if (!isbitset(bm, i))
+            continue;
+        else if (proto_#protocol#.flds[i].local) {
+            msgpos += parse_#protocol#(msg->userdata, i, buf + msgpos, size - msgpos);
+            continue;
+        }
+        else if (proto_#protocol#.flds[i].issizefxd)
+            len = proto_#protocol#.flds[i].size;
+        else
+            getint(len, buf, proto_#protocol#.flds[i].size, msgpos);
+
+        msg->flds[i].size = len;
+        getraw(msg->flds[i].data, buf, len, msgpos);
+    }
+
+    return true;
+}
+
+size_t
+libfmt_getfld_#protocol#(void **data, struct message *msg, int i)
+{
+    if (i <= 1 || i > 128)
+        return 0;
+
+    // TODO: complete for local parsing fields
+    *data = msg->flds[i].data;
+    return msg->flds[i].size;
 }
