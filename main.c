@@ -74,30 +74,41 @@ check_proto(struct json_object *proto)
     return true;
 }
 
-static int
+static bool
 gen_header(struct json_object *proto, const char *header)
 {
     const char *sproto;
     const char *svers;
+    int fd;
     FILE *fp;
+    char tmpfile[] = "/tmp/file.XXXXXX";
+    char cmd[1024];
 
     sproto = json_object_get_string(json_object_object_get(proto, "protocol"));
     svers = json_object_get_string(json_object_object_get(proto, "version"));
 
-    fp = fopen(header, "w+");
+    fd = mkstemp(tmpfile);
+    if (fd == -1) {
+        perror("mkstemp()");
+        return false;
+    }
+
+    fp = fdopen(fd, "w+");
     if (!fp) {
         perror("fopen()");
-        return 1;
+        close(fd);
+        unlink(tmpfile);
+        return false;
     }
 
     fprintf(fp, "#include <stdlib.h>\n"
                 "#include <stdbool.h>\n"
                 "#include <stdint.h>\n");
 
-    fprintf(fp, "struct proto_%s {\n"
+    fprintf(fp, "struct proto_#protocol# {\n"
                 "    const char *protocol;\n"
                 "    const char *version;\n"
-                "    struct fields_%s {\n"
+                "    struct fields_#protocol# {\n"
                 "        bool isdefined;\n"
                 "        const char *descx\n;"
                 "        // format flags\n"
@@ -109,27 +120,33 @@ gen_header(struct json_object *proto, const char *header)
                 "        bool digit;\n"
                 "        bool bytes;\n"
                 "    } flds[128];\n"
-                "};\n", sproto, sproto);
+                "};\n");
 
     fprintf(fp, "struct message {\n"
                 "    void *userdata;\n"
                 "    struct field {\n"
-                "        size_t size;"
-                "        uint8_t *data;"
-                "    } flds[128];"
+                "        size_t size;\n"
+                "        uint8_t *data;\n"
+                "    } flds[128];\n"
                 "    // TODO add field tree\n"
                 "};\n"
-                "size_t get_length_%s(int i, const uint8_t *buf, size_t size);\n"
-                "size_t check_%s(int i, const uint8_t *buf, size_t size);\n"
-                "size_t parse_%s(void *udata, int i, const uint8_t *buf, size_t size);\n"
+                "size_t get_length_#protocol#(int i, const uint8_t *buf, size_t size);\n"
+                "size_t check_#protocol#(int i, const uint8_t *buf, size_t size);\n"
+                "size_t parse_#protocol#(void *udata, int i, const uint8_t *buf, size_t size);\n"
+                "size_t get_field_#protocol#(void **data, void *userdata, int i);\n"
                 "\n"
-                "bool libfmt_check_%s(const struct message *msg, const uint8_t *buf, size_t size);\n"
-                "struct message *libfmt_init_message_%s(void);\n"
-                "bool libfmt_parse_%s(struct message *msg, const uint8_t *buf, size_t size);\n"
-                "size_t libfmt_getfld_%s(void **data, struct message *msg, int i);\n",
-            sproto, sproto, sproto, sproto, sproto, sproto, sproto);
+                "bool libfmt_check_#protocol#(const struct message *msg, const uint8_t *buf, size_t size);\n"
+                "struct message *libfmt_init_message_#protocol#(void);\n"
+                "bool libfmt_parse_#protocol#(struct message *msg, const uint8_t *buf, size_t size);\n"
+                "size_t libfmt_getfld_#protocol#(void **data, struct message *msg, int i);\n");
 
-    return 0;
+    fclose(fp);
+
+    snprintf(cmd, sizeof (cmd), "/bin/cat %s | /bin/sed 's/#protocol#/%s/g' >%s", tmpfile, sproto, header);
+    system(cmd);
+    unlink(tmpfile);
+
+    return true;
 }
 
 struct format_flags {
@@ -142,9 +159,12 @@ struct format_flags {
     bool isbytes;
 };
 
-// regex for *format*
-// /(a|n|s|an|as|ns|ans|b|x+n)\.\.?\.?NN?N?/
-
+/*
+ * brief            parse_fmt - parse format string
+ * param[out]       flgs - structure of flags of parsed format string
+ * param[in]        fmt - format string
+ * details          regex for *fmt*: /(a|n|s|an|as|ns|ans|b|x+n)\.{1,3}[0-9]{1,3}/
+ */
 static bool
 parse_fmt(struct format_flags *flgs, const char *fmt)
 {
@@ -245,6 +265,7 @@ gen_cfile(struct json_object *proto, const char *cfile, const char *hfile)
     if (!fp) {
         perror("fopen()");
         close(fd);
+        unlink(tmpfile);
         return 1;
     }
 

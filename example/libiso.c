@@ -25,6 +25,12 @@ parse_iso8583(void *udata, int i, const uint8_t *msg, size_t size)
     return 0;
 }
 
+size_t
+get_field_iso8583(void **data, void *userdata, int i)
+{
+    return 0;
+}
+
 int
 main(void)
 {

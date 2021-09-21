@@ -209,7 +209,9 @@ libfmt_getfld_#protocol#(void **data, struct message *msg, int i)
     if (i <= 1 || i > 128)
         return 0;
 
-    // TODO: complete for local parsing fields
+    if (proto_#protocol#.flds[i].local)
+        return get_field_#protocol#(data, msg->userdata, i);
+
     *data = msg->flds[i].data;
     return msg->flds[i].size;
 }
