@@ -16,7 +16,7 @@ extern char __template_data_size[];  static size_t c_template_size;
 
 /*
  * @brief           check_errormsg - remember and print error messages
- * @param[in]       msgerr -- if is not NULL then put remember the msg print the msg
+ * @param[in]       msgerr - if is not NULL then put remember the msg print the msg
  */
 static void
 check_errormsg(const char *msgerr)
@@ -119,7 +119,7 @@ gen_header(struct json_object *proto, const char *header)
                 "        bool alpha;\n"
                 "        bool digit;\n"
                 "        bool bytes;\n"
-                "    } flds[128];\n"
+                "    } flds[128 + 1];\n"
                 "};\n");
 
     fprintf(fp, "struct message {\n"
@@ -127,7 +127,7 @@ gen_header(struct json_object *proto, const char *header)
                 "    struct field {\n"
                 "        size_t size;\n"
                 "        uint8_t *data;\n"
-                "    } flds[128];\n"
+                "    } flds[128 + 1];\n"
                 "    // TODO add field tree\n"
                 "};\n"
                 "size_t get_length_#protocol#(int i, const uint8_t *buf, size_t size);\n"
@@ -294,13 +294,23 @@ gen_cfile(struct json_object *proto, const char *cfile, const char *hfile)
         struct format_flags flgs = {0};
 
         fld = json_object_array_get_idx(flds, (size_t)i);
-        idx = (int)json_object_get_int(json_object_object_get(fld, "idx"));
+        idx = (int)json_object_get_int(json_object_object_get(fld, "idx")); // TODO: check 1 <= idx <= 128
         descx = json_object_get_string(json_object_object_get(fld, "descx"));
         fmt = json_object_get_string(json_object_object_get(fld, "format"));
 
-        if (!parse_fmt(&flgs, fmt))
+        if (!parse_fmt(&flgs, fmt)) {
             fprintf(stderr, "Can't parse format string of #%d fld, fmt is '%s'", idx, fmt);
+            return false;
+        }
 
+        // actually field with idx == 1 is additional bitmap and size of
+        // the field depends on first bit of the field.
+        // If firs bit is 0 than size is 8 byte (64 bit)
+        // [0..........]
+        //   |63 bits |
+        // Otherwise size is 16 byte (128 bit)
+        // [1..........]
+        //   |127 bits|
         fprintf(fp, "        [%d] = {\n"
                     "            .isdefined = true,\n"
                     "            .descx = \"%s\",\n"

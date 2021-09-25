@@ -2,6 +2,7 @@
     "protocol":"iso8583",
     "version":"v1",
     "fields":[
+        {"idx":0,  "descx":"MTI", "format":"n4"},
         {"idx":1,  "descx":"Second bitmap", "format":"b8"},
         {"idx":2,  "descx":"Primary account number", "format":"n..19"},
         {"idx":3,  "descx":"Processing code", "format":"n6"},

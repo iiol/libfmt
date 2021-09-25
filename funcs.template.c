@@ -34,23 +34,20 @@ check_length_#protocol#(const struct message *msg, const uint8_t *buf, size_t si
     size_t msgpos = 0;
     bitmap bm;
 
-    if (4 + 8 > size)
-        goto err;
-
-    skipn(4, msgpos); // Skip MTI
-    getbitmap(bm, buf, msgpos);
-
-    if (isbitset(bm, 1)) {
-        if (msgpos + 8 > size)
-            goto err;
-
-        getbitmap(bm + 8, buf, msgpos);
-    }
-
-    for (i = 1; i < MAX_BIT; ++i) {
+    for (i = 0; i <= MAX_BIT; ++i) {
         size_t len = 0;
 
-        if (!isbitset(bm, i))
+        if (i = 1) { // BITMAP
+            getbitmap(bm, buf, msgpos);
+
+            if (isbitset(bm, 1)) {
+                if (msgpos + 8 > size)
+                    goto err;
+
+                getbitmap(bm + 8, buf, msgpos);
+            }
+        }
+        else if (i != 0 && !isbitset(bm, i)) // Don't continue for MTI
             continue;
 
         if (proto_#protocol#.flds[i].local)
@@ -100,38 +97,40 @@ libfmt_check_#protocol#(const struct message *msg, const uint8_t *buf, size_t si
         return false;
     }
 
-    getint(mti, buf, 4, msgpos);
-    getbitmap(bm, buf, msgpos);
-
-    if (isbitset(bm, 1))
-        getbitmap((uint8_t*)bm + 8, buf, msgpos);
-
-    printf("mti: %04d\n", mti);
-    printbitmap(bm);
-
-    for (i = 1; i < MAX_BIT; ++i) {
+    for (i = 0; i <= MAX_BIT; ++i) {
         int j;
 
-        if (!isbitset(bm, i))
+        if (i == 1) {
+            getbitmap(bm, buf, msgpos);
+
+            if (isbitset(bm, 1))
+                getbitmap((uint8_t*)bm + 8, buf, msgpos);
+        }
+        else if (!isbitset(bm, i))
             continue;
-        else if (!proto_#protocol#.flds[i].isdefined) {
+
+        if (!proto_#protocol#.flds[i].isdefined) {
             fprintf(stderr, "Can't find fld #%d in provided description\n", i);
             return false;
         }
 
-        printf("Checking #%d field\n", i);
+        printf("Checking field #%d\n", i);
 
         if (proto_#protocol#.flds[i].local) {
             msgpos += check_#protocol#(i, buf + msgpos, size - msgpos); // TODO: put msg
             continue;
         }
+        else if (i == 1)
+            len = isbitset(bm, 1) : 16 : 8;
         else if (proto_#protocol#.flds[i].issizefxd)
             len = proto_#protocol#.flds[i].size;
         else
             getint(len, buf, proto_#protocol#.flds[i].size, msgpos);
 
-        if (proto_#protocol#.flds[i].bytes)
+        if (proto_#protocol#.flds[i].bytes) {
+            msgpos += len;
             continue;
+        }
 
         for (j = 0; j < len; ++j) {
             if (proto_#protocol#.flds[i].alpha && !isalpha(buf[msgpos + j]) && !isspace(buf[msgpos + j])
@@ -140,6 +139,8 @@ libfmt_check_#protocol#(const struct message *msg, const uint8_t *buf, size_t si
                 return false;
             }
         }
+
+        msgpos += j;
     }
 
     return true;
@@ -154,12 +155,15 @@ libfmt_init_message_#protocol#(void)
     msg = malloc(sizeof (*msg));
     memset(msg, 0, sizeof (*msg));
 
-    for (i = 0; i < 128; ++i) {
+    for (i = 0; i < MAX_BIT; ++i) {
         if (!proto_#protocol#.flds[i].isdefined
          || proto_#protocol#.flds[i].local)
             continue;
 
-        msg->flds[i].data = malloc(proto_#protocol#.flds[i].max_size);
+        if (i == 1)
+            msg->flds[i].data = malloc(MAX_BIT/8);
+        else
+            msg->flds[i].data = malloc(proto_#protocol#.flds[i].max_size);
     }
 
     return msg;
@@ -184,6 +188,7 @@ libfmt_parse_#protocol#(struct message *msg, const uint8_t *buf, size_t size)
     if (isbitset(bm, 1))
         getbitmap((uint8_t*)bm + 8, buf, msgpos);
 
+    // TODO: CONTINUE HERE
     for (i = 2; i < MAX_BIT; ++i) {
         if (!isbitset(bm, i))
             continue;
